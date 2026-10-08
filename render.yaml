@@ -1,0 +1,26 @@
+# Render Blueprint: https://render.com/docs/blueprint-spec
+# Secrets use `sync: false`, so Render asks for them at creation and they never live in git.
+services:
+  - type: web
+    name: zefix-mcp-server
+    runtime: python
+    plan: free            # sleeps after ~15 min idle; first request then takes ~30-60 s
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: python zefix_server.py
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.3
+      - key: HOST
+        value: 0.0.0.0
+      - key: ZEFIX_USER
+        sync: false
+      - key: ZEFIX_PASSWORD
+        sync: false
+      - key: AUTH0_DOMAIN
+        sync: false
+      - key: AUTH0_AUDIENCE
+        sync: false
+      - key: SERVER_URL      # e.g. https://zefix-mcp-server.onrender.com/mcp
+        sync: false

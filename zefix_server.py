@@ -37,6 +37,8 @@ import jwt
 from mcp.server.auth.provider import AccessToken
 from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+from starlette.requests import Request
+from starlette.responses import JSONResponse
 
 HOST = os.environ.get("HOST", "127.0.0.1")
 PORT = int(os.environ.get("PORT", "8000"))
@@ -111,6 +113,12 @@ mcp = MCPServer(
     ),
     **auth_options,
 )
+
+@mcp.custom_route("/health", methods=["GET"])
+async def health(request: Request) -> JSONResponse:
+    """Public liveness check for the hosting platform (no auth, no Zefix call)."""
+    return JSONResponse({"status": "ok"})
+
 
 BASE_URL = "https://www.zefix.admin.ch/ZefixPublicREST/api/v1"
 USER = os.environ.get("ZEFIX_USER", "")
