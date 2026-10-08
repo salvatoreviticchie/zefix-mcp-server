@@ -16,16 +16,91 @@ Environment variables (never hard-code them):
     ZEFIX_USER, ZEFIX_PASSWORD   Zefix API account (required)
     HOST                         default 127.0.0.1 (use 0.0.0.0 in a container)
     PORT                         default 8000 (most hosts set this for you)
+    AUTH0_DOMAIN                 e.g. my-tenant.eu.auth0.com — turns on OAuth
+    AUTH0_AUDIENCE               the Auth0 API identifier, e.g. https://zefix-mcp-server
+    SERVER_URL                   public URL of the MCP endpoint, e.g. https://x.onrender.com/mcp
+
+Without AUTH0_DOMAIN the server runs unauthenticated and refuses to bind to
+anything other than 127.0.0.1.
 
 Run:
     .venv/bin/python zefix_server.py      # MCP endpoint: http://HOST:PORT/mcp
 """
 
+import asyncio
 import os
 import re
+import sys
 
 import httpx
+import jwt
+from mcp.server.auth.provider import AccessToken
+from mcp.server.auth.settings import AuthSettings
 from mcp.server.mcpserver import MCPServer
+
+HOST = os.environ.get("HOST", "127.0.0.1")
+PORT = int(os.environ.get("PORT", "8000"))
+AUTH0_DOMAIN = os.environ.get("AUTH0_DOMAIN", "")
+AUTH0_AUDIENCE = os.environ.get("AUTH0_AUDIENCE", "")
+SERVER_URL = os.environ.get("SERVER_URL", f"http://{HOST}:{PORT}/mcp")
+REQUIRED_SCOPE = "zefix:read"
+
+
+class Auth0TokenVerifier:
+    """Checks the Bearer token on every request (OAuth 2.0 resource server).
+
+    Like a Connected App on the Salesforce side: Auth0 issues the token,
+    we only check it. The token is a JWT signed with Auth0's private key;
+    we verify the signature with Auth0's public keys (JWKS), then the
+    issuer, the audience (this API) and the expiry. No secret needed here.
+    """
+
+    def __init__(self, domain: str, audience: str):
+        self.issuer = f"https://{domain}/"
+        self.audience = audience
+        # Downloads and caches Auth0's public keys.
+        self.jwks = jwt.PyJWKClient(f"https://{domain}/.well-known/jwks.json")
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        try:
+            # PyJWKClient does a blocking HTTP call; run it off the event loop.
+            key = await asyncio.to_thread(self.jwks.get_signing_key_from_jwt, token)
+            claims = jwt.decode(
+                token, key.key, algorithms=["RS256"],
+                audience=self.audience, issuer=self.issuer,
+            )
+        except jwt.PyJWTError:
+            return None  # the SDK turns None into HTTP 401
+
+        return AccessToken(
+            token=token,
+            client_id=claims.get("azp") or claims.get("sub", ""),
+            scopes=claims.get("scope", "").split(),
+            expires_at=claims.get("exp"),
+            subject=claims.get("sub"),
+            claims=claims,
+        )
+
+
+if AUTH0_DOMAIN:
+    if not AUTH0_AUDIENCE:
+        sys.exit("AUTH0_AUDIENCE must be set together with AUTH0_DOMAIN.")
+    auth_options = {
+        "token_verifier": Auth0TokenVerifier(AUTH0_DOMAIN, AUTH0_AUDIENCE),
+        # Published at /.well-known/oauth-protected-resource so MCP clients
+        # can discover which identity provider issues tokens for this server.
+        "auth": AuthSettings(
+            issuer_url=f"https://{AUTH0_DOMAIN}/",
+            resource_server_url=SERVER_URL,
+            required_scopes=[REQUIRED_SCOPE],
+            # Auth0TokenVerifier already checks the audience (AUTH0_AUDIENCE).
+            validate_token_resource=False,
+        ),
+    }
+elif HOST != "127.0.0.1":
+    sys.exit("Refusing to run without authentication on a public interface. Set AUTH0_DOMAIN.")
+else:
+    auth_options = {}
 
 mcp = MCPServer(
     "zefix",
@@ -34,6 +109,7 @@ mcp = MCPServer(
         "Use search_companies to find a company by name, then get_company "
         "with its UID for details. Always mention the source to the user."
     ),
+    **auth_options,
 )
 
 BASE_URL = "https://www.zefix.admin.ch/ZefixPublicREST/api/v1"
@@ -240,10 +316,11 @@ if __name__ == "__main__":
     # Streamable HTTP = the transport remote clients (like Agentforce) use.
     # stateless_http: every request stands alone, no server-side session — like
     # an Apex REST call. json_response: plain JSON replies instead of an SSE stream.
+    print(f"Zefix MCP server on {SERVER_URL} — auth: {'Auth0' if AUTH0_DOMAIN else 'OFF (local only)'}")
     mcp.run(
         transport="streamable-http",
-        host=os.environ.get("HOST", "127.0.0.1"),
-        port=int(os.environ.get("PORT", "8000")),
+        host=HOST,
+        port=PORT,
         stateless_http=True,
         json_response=True,
     )

@@ -64,10 +64,34 @@ Every tool response includes a `source` field stating the origin and that the da
 reformatted, as the Zefix terms require. Zefix data has no legal effect; for legally binding
 information, use the official cantonal register excerpt (`cantonal_excerpt_url`).
 
-## Security
+## Authentication (OAuth 2.0)
 
-This server has **no authentication of its own yet**. Run it locally only, or behind an
-authenticated gateway: anyone who can reach the endpoint uses your Zefix account.
+The server is an OAuth 2.0 **resource server**: every request needs a Bearer token (a JWT)
+issued by an identity provider. It ships with an Auth0 verifier; any provider that issues
+RS256 JWTs with a JWKS endpoint works with small changes.
+
+```
+Client ──(client ID + secret)──► Auth0 ──► access token (JWT, scope zefix:read)
+Client ──(Authorization: Bearer <token>)──► this server ──► Zefix
+```
+
+The server never sees the client secret. It checks the token's signature against the
+provider's public keys, plus issuer, audience, expiry and the `zefix:read` scope.
+Requests without a valid token get `401`, and the server publishes its
+[protected resource metadata](https://datatracker.ietf.org/doc/html/rfc9728) at
+`/.well-known/oauth-protected-resource/mcp` so MCP clients can discover the provider.
+
+Auth0 setup (free tier):
+
+1. **APIs → Create API**: identifier e.g. `https://zefix-mcp-server`, signing RS256.
+   Add the permission `zefix:read`.
+2. **Applications → Create Application → Machine to Machine**, authorized for that API
+   with `zefix:read`. Its Client ID and Secret go into your MCP client (for example the
+   Agentforce Registry, OAuth 2.0 client credentials).
+3. Set `AUTH0_DOMAIN`, `AUTH0_AUDIENCE` and `SERVER_URL` on the server.
+
+Without `AUTH0_DOMAIN` the server runs unauthenticated **and only on 127.0.0.1**: it
+refuses to start on a public interface, so an unprotected deployment can't happen by mistake.
 
 ## License
 
