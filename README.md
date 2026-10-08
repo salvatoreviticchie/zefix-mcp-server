@@ -68,3 +68,7 @@ information, use the official cantonal register excerpt (`cantonal_excerpt_url`)
 
 This server has **no authentication of its own yet**. Run it locally only, or behind an
 authenticated gateway: anyone who can reach the endpoint uses your Zefix account.
+
+## License
+
+Code: [MIT](LICENSE). Zefix data remains subject to the Zefix terms above.
