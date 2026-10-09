@@ -39,6 +39,11 @@ export ZEFIX_PASSWORD="..."
 The MCP endpoint is then `http://127.0.0.1:8000/mcp`. Set `HOST` and `PORT` to change it
 (use `HOST=0.0.0.0` inside a container). See `.env.example` for all variables.
 
+## Use it from Salesforce Agentforce
+
+The [`agentforce/`](agentforce/) folder contains a ready-made Agentforce agent (Agent Script)
+that calls this server through the Agentforce Registry, plus setup steps and lessons learned.
+
 ## Try it with the MCP Inspector
 
 ```bash
